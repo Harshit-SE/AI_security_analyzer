@@ -1,0 +1,17 @@
+# RAG Service — Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# ── Core ML / NLP ─────────────────────────────────────────────────────────────
+sentence-transformers==2.7.0   # Embeddings (all-MiniLM-L6-v2)
+faiss-cpu==1.8.0               # Vector database (CPU version — free, no GPU needed)
+numpy>=1.24.0,<2.0.0           # Required by FAISS and sentence-transformers
+
+# ── HTTP Server ───────────────────────────────────────────────────────────────
+flask==3.0.3                   # Lightweight HTTP server for Node.js integration
+requests==2.32.3               # HTTP client for Ollama API calls
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv==1.0.1           # Load .env file if running standalone
+
+# ── Optional: accelerate sentence-transformers on CPU ─────────────────────────
+torch>=2.0.0                 # Uncomment for faster embedding (larger install)

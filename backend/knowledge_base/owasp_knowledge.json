@@ -1,0 +1,52 @@
+[
+  {
+    "id": "KB-001",
+    "category": "Insecure Design",
+    "title": "Missing Rate Limiting",
+    "cwe": ["CWE-770"],
+    "severity": "Medium",
+    "description": "The API endpoint does not restrict the number of requests a user can make in a given timeframe. This allows attackers to perform brute-force attacks, credential stuffing, or cause Denial of Service (DoS).",
+    "fix": "Implement rate limiting middleware (e.g., express-rate-limit). Return a 429 Too Many Requests status code when limits are exceeded.",
+    "attack_paths": ["Brute Force Credentials", "Denial of Service (DoS)", "Data Scraping"]
+  },
+  {
+    "id": "KB-002",
+    "category": "Broken Access Control",
+    "title": "API Version Bypass Risk",
+    "cwe": ["CWE-285", "CWE-639"],
+    "severity": "Low",
+    "description": "Including the API version directly in the URL (e.g., /api/v1/) can leave older, insecure versions of the API exposed if they are not explicitly decommissioned.",
+    "fix": "Implement a strict deprecation policy for old API versions. Ensure security patches are applied across all active versions.",
+    "attack_paths": ["Exploit unpatched vulnerability in /v1/ endpoint while /v2/ is secure"]
+  },
+  {
+    "id": "KB-003",
+    "category": "Security Misconfiguration",
+    "title": "Missing Security Headers",
+    "cwe": ["CWE-16"],
+    "severity": "Medium",
+    "description": "The server does not include standard HTTP security headers (like X-Content-Type-Options, Strict-Transport-Security, or X-Frame-Options), leaving the client vulnerable to MIME-sniffing, clickjacking, and man-in-the-middle attacks.",
+    "fix": "Use a security middleware like Helmet in Node.js to automatically apply safe HTTP headers.",
+    "attack_paths": ["Clickjacking via iframe embedding", "MIME-type sniffing"]
+  },
+  {
+    "id": "KB-004",
+    "category": "Injection",
+    "title": "SQL Injection (SQLi)",
+    "cwe": ["CWE-89"],
+    "severity": "Critical",
+    "description": "Untrusted user input is concatenated directly into a database query. This allows an attacker to manipulate the query logic, bypassing authentication or extracting unauthorized data.",
+    "fix": "Use parameterized queries, prepared statements, or a secure ORM (like Prisma or Sequelize). Never use string concatenation for SQL queries.",
+    "attack_paths": ["Authentication Bypass", "Database Dump", "Remote Code Execution"]
+  },
+  {
+    "id": "KB-005",
+    "category": "Injection",
+    "title": "Cross-Site Scripting (XSS)",
+    "cwe": ["CWE-79"],
+    "severity": "High",
+    "description": "The application includes untrusted data in a web page without proper validation or escaping, allowing attackers to execute malicious JavaScript in the victim's browser.",
+    "fix": "Contextually encode all output. Implement a strong Content Security Policy (CSP). Use modern frameworks (React, Vue) that escape output by default.",
+    "attack_paths": ["Session Hijacking", "Phishing via fake login forms"]
+  }
+]
