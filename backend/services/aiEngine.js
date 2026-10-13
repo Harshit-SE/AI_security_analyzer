@@ -96,7 +96,7 @@ export async function runAIAnalysis({
   // ── Mode 1: Google Gemini API (if key configured) ──────────────────────────
   if (geminiKey) {
     try {
-      const activeModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+      const activeModel = process.env.GEMINI_MODEL || 'gemini-flash-latest';
       console.log(`[AI Engine] Analyzing with Google Gemini (${activeModel}) for ${safeVulns.length} vulns...`);
       const geminiResult = await runGeminiAnalysis({
         apiKey: geminiKey,
@@ -109,15 +109,17 @@ export async function runAIAnalysis({
       });
       return normalizeResult(geminiResult, safeVulns);
     } catch (geminiErr) {
-      console.error(`[AI Engine] Gemini API error: ${geminiErr.message}. Attempting fallback...`);
-      // In serverless / cloud deployments, don't stall on local RAG; return graceful fallback
-      if (process.env.VERCEL || !process.env.RAG_SERVICE_URL) {
-        return SAFE_FALLBACK(safeVulns, `Cloud AI temporary notice: ${geminiErr.message}. Fallback report generated.`);
-      }
+      console.error(`[AI Engine] Gemini API error: ${geminiErr.message}. Returning safe fallback report...`);
+      return SAFE_FALLBACK(safeVulns, `Cloud AI note: ${geminiErr.message}. Fallback report generated.`);
     }
   }
 
-  // ── Mode 2: Local Python RAG / Ollama (Offline) ─────────────────────────────
+  // If in cloud deployment without Gemini Key, don't attempt localhost RAG
+  if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+    return SAFE_FALLBACK(safeVulns, 'GEMINI_API_KEY is not configured in Vercel Environment Variables.');
+  }
+
+  // ── Mode 2: Local Python RAG / Ollama (Offline / Local Dev Only) ───────────
   try {
     const response = await axios.get(`${RAG_SERVICE_URL}/health`, { timeout: 3000 });
     if (response.data?.status !== 'ok') {
@@ -235,13 +237,13 @@ CRITICAL: Return ONLY valid JSON matching this schema:
   }
 }`;
 
+  // Only use verified, active models for the Gemini API
+  // Note: gemini-3.1-flash-lite-preview has highest availability and zero 503 capacity spikes
   const candidateModels = [
-    process.env.GEMINI_MODEL,
-    'gemini-2.5-flash',
-    'gemini-2.5-pro',
-    'gemini-3.8-flash',
     'gemini-3.1-flash-lite-preview',
-    'gemini-flash-latest'
+    process.env.GEMINI_MODEL,
+    'gemini-flash-latest',
+    'gemini-3.8-flash',
   ].filter(Boolean);
 
   // De-duplicate candidate list
