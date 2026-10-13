@@ -1,1 +1,11 @@
 node_modules
+.env
+.env.local
+.env.*.local
+*.log
+venv/
+__pycache__/
+*.pyc
+*.pyo
+knowledge_base/faiss_index.bin
+knowledge_base/faiss_meta.json

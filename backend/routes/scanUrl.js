@@ -17,6 +17,7 @@
 import express from 'express';
 import { scanUrl }       from '../services/urlScanner.js';
 import { runAIAnalysis } from '../services/aiEngine.js';
+import { validateExternalUrl } from '../middleware/validateUrl.js';
 
 export const urlScanRouter = express.Router();
 
@@ -43,6 +44,16 @@ function buildSafeResponse(partial = {}) {
   };
 }
 
+
+// ── Input sanitization ────────────────────────────────────────────────────────
+const ALLOWED_PERSONAS      = new Set(['beginner', 'insider', 'advanced']);
+const ALLOWED_EXPLAIN_MODES = new Set(['beginner', 'developer', 'expert']);
+
+function sanitizePromptField(value, maxLen = 200) {
+  if (typeof value !== 'string') return '';
+  return value.replace(/[\x00-\x1F\x7F]/g, '').trim().slice(0, maxLen);
+}
+
 urlScanRouter.post('/', async (req, res, next) => {
   try {
     const {
@@ -52,10 +63,19 @@ urlScanRouter.post('/', async (req, res, next) => {
       explainMode = 'developer',
     } = req.body;
 
-    const cleanUrl = typeof url === 'string' ? url.trim() : '';
-    if (!cleanUrl) {
-      return res.status(400).json({ error: 'url is required' });
+    // ── Validate URL (SSRF protection) ────────────────────────────────────────
+    let parsedUrl;
+    try {
+      parsedUrl = await validateExternalUrl(url);
+    } catch (urlErr) {
+      return res.status(400).json({ error: urlErr.message });
     }
+    const cleanUrl = parsedUrl.href;
+
+    // ── Sanitize prompt-injectable fields ─────────────────────────────────────
+    const safeGoal        = sanitizePromptField(goal) || 'gain unauthorized access';
+    const safePersona     = ALLOWED_PERSONAS.has(persona)          ? persona     : 'advanced';
+    const safeExplainMode = ALLOWED_EXPLAIN_MODES.has(explainMode) ? explainMode : 'developer';
 
     console.log(`[URL Scan] Scanning: ${cleanUrl}`);
 
@@ -65,11 +85,9 @@ urlScanRouter.post('/', async (req, res, next) => {
       rawVulns = await scanUrl(cleanUrl);
     } catch (scanErr) {
       console.error(`[URL Scan] Scanner failed: ${scanErr.message}`);
-      // Return a safe response instead of crashing — the AI can still run
       rawVulns = [];
     }
 
-    // Ensure we always have an array
     if (!Array.isArray(rawVulns)) rawVulns = [];
 
     // ── No vulnerabilities found — return safe clean result ──────────────────
@@ -93,9 +111,9 @@ urlScanRouter.post('/', async (req, res, next) => {
       vulnerabilities: rawVulns,
       target:          cleanUrl,
       targetType:      'url',
-      goal,
-      persona,
-      explainMode,
+      goal:            safeGoal,
+      persona:         safePersona,
+      explainMode:     safeExplainMode,
     });
 
     return res.json(buildSafeResponse(analysis));

@@ -134,7 +134,7 @@ class KnowledgeBase:
         self.texts = [self._doc_to_text(d) for d in self.documents]
 
         # Try to restore cached index (avoids re-embedding on every startup)
-        current_hash = hashlib.md5(raw.encode()).hexdigest()
+        current_hash = hashlib.sha256(raw.encode()).hexdigest()
         if self._try_load_cache(current_hash):
             logger.info("FAISS index restored from cache")
             return
@@ -247,9 +247,11 @@ class OllamaClient:
             "model":  self.model,
             "prompt": prompt,
             "stream": False,
+            "format": "json",  # <--- FORCES PERFECT JSON SYNTAX
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
+                "num_ctx": 8192,
                 "top_p": 0.9,
                 "repeat_penalty": 1.1,
             },
@@ -262,7 +264,7 @@ class OllamaClient:
                 response = requests.post(
                     f"{self.base_url}/api/generate",
                     json=payload,
-                    timeout=120,   # LLM inference can take a while
+                    timeout=300,   # Extended to 5 minutes to prevent premature timeouts
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -378,23 +380,24 @@ def detect_vulnerability_chains(vulnerabilities: list[dict]) -> list[dict]:
 
     for rule in CHAIN_RULES:
         required = rule["requires"]
-        # Check if all required types are present
-        if not all(any(req in t for t in vuln_types) for req in required):
+        # Check if all required types are present (exact match or word-level boundary)
+        if not all(any(req == t or req.lower() in t.lower() for t in vuln_types) for req in required):
             continue
 
         # Gather participating vuln IDs
         participating = []
         for req in required:
             for t, ids in vuln_by_type.items():
-                if req in t:
+                if req == t or req.lower() in t.lower():
                     participating.extend(ids)
 
-        # Calculate combined CVSS — take highest individual score and apply boost
-        max_cvss = max(
-            (v.get("cvss_score", 5.0) or 5.0)
+        # Calculate combined CVSS — take highest individual score of matching vulns and apply boost
+        matching_scores = [
+            float(v.get("cvss_score") or 5.0)
             for v in vulnerabilities
-            if v.get("type", "") in " ".join(required)
-        ) if vulnerabilities else 5.0
+            if any(req == v.get("type", "") or req.lower() in v.get("type", "").lower() for req in required)
+        ]
+        max_cvss = max(matching_scores) if matching_scores else 5.0
         combined_cvss = min(10.0, max_cvss + rule["boost"])
 
         chains.append({
@@ -537,6 +540,7 @@ def _build_system_prompt(persona: str, explain_mode: str) -> str:
         f"Explanation style: {explain_styles.get(explain_mode, explain_styles['developer'])}\n\n"
         "CRITICAL: Respond with VALID JSON ONLY. "
         "Zero prose before or after. No markdown fences. "
+        "DO NOT output placeholder brackets like < or > in your final JSON values. "
         "All array fields must be JSON arrays, never null."
     )
 
@@ -584,60 +588,60 @@ DETECTED VULNERABILITIES WITH OWASP CONTEXT:
 
 Respond with ONLY this JSON structure (no other text):
 {{
-  "risk_score": <number 0-10>,
-  "risk_label": "<Critical|High|Medium|Low>",
-  "executive_summary": "<2-3 sentence summary for {explain_mode} audience>",
+  "risk_score": 8,
+  "risk_label": "Critical|High|Medium|Low",
+  "executive_summary": "Write a 2-3 sentence summary for {explain_mode} audience here.",
   "vulnerabilities": [
     {{
-      "id": "<same as input>",
-      "name": "<string>",
-      "type": "<OWASP category>",
-      "severity": "<Critical|High|Medium|Low|Info>",
-      "cvss_score": <number 0-10>,
-      "cwe_id": "<e.g. CWE-89>",
-      "explanation": "<tailored for {explain_mode}>",
-      "real_world_impact": "<concrete example>",
-      "evidence": "<what was found>",
-      "location": "<where>"
+      "id": "same as input",
+      "name": "string",
+      "type": "OWASP category",
+      "severity": "Critical|High|Medium|Low|Info",
+      "cvss_score": 8.5,
+      "cwe_id": "e.g. CWE-89",
+      "explanation": "tailored explanation for {explain_mode}",
+      "real_world_impact": "concrete example",
+      "evidence": "what was found",
+      "location": "where"
     }}
   ],
   "attack_paths": [
     {{
-      "goal": "<objective>",
-      "success_probability": <0-100>,
-      "complexity": "<Low|Medium|High>",
-      "detection_risk": "<Low|Medium|High>",
+      "goal": "objective",
+      "success_probability": 85,
+      "complexity": "Low|Medium|High",
+      "detection_risk": "Low|Medium|High",
       "steps": [
-        {{"step_number": 1, "action": "<action>", "technique": "<name>", "vulnerability_used": "<id>", "outcome": "<result>"}}
+        {{"step_number": 1, "action": "action", "technique": "name", "vulnerability_used": "id", "outcome": "result"}}
       ],
-      "chained_vulnerabilities": ["<id>"],
-      "prerequisites": "<string>"
+      "chained_vulnerabilities": ["id"],
+      "prerequisites": "string"
     }}
   ],
   "vulnerability_chains": [
     {{
-      "title": "<descriptive title>",
-      "vulnerabilities": ["<id>"],
-      "combined_severity": "<Critical|High|Medium>",
-      "explanation": "<why worse>",
-      "combined_cvss": <number>
+      "title": "descriptive title",
+      "vulnerabilities": ["id"],
+      "combined_severity": "Critical|High|Medium",
+      "explanation": "why worse",
+      "combined_cvss": 9.0
     }}
   ],
   "fixes": [
     {{
-      "vulnerability_id": "<id>",
-      "priority": "<Immediate|Short-term|Long-term>",
-      "fix_summary": "<string>",
-      "implementation_steps": ["<step>"],
-      "secure_code_example": "<code or null>",
-      "estimated_effort": "<Hours|Days|Weeks>",
-      "references": ["<url>"]
+      "vulnerability_id": "id",
+      "priority": "Immediate|Short-term|Long-term",
+      "fix_summary": "string",
+      "implementation_steps": ["step"],
+      "secure_code_example": "code or null",
+      "estimated_effort": "Hours|Days|Weeks",
+      "references": ["url"]
     }}
   ],
   "defensive_recommendations": {{
-    "immediate_actions": ["<action>"],
-    "security_controls": ["<control>"],
-    "monitoring_alerts": ["<alert>"]
+    "immediate_actions": ["action"],
+    "security_controls": ["control"],
+    "monitoring_alerts": ["alert"]
   }}
 }}"""
 
@@ -814,7 +818,11 @@ def run_http_server(host: str = "127.0.0.1", port: int = 5001):
         """Quick endpoint to test RAG retrieval without LLM."""
         body = request.get_json(force=True)
         query = body.get("query", "")
-        k     = int(body.get("k", TOP_K))
+        # Bound k to prevent DoS via huge FAISS searches
+        MAX_K = 20
+        k = min(int(body.get("k", TOP_K)), MAX_K)
+        if k < 1:
+            k = 1
         docs  = pipeline.kb.retrieve(query, k=k)
         return jsonify({"query": query, "results": docs})
 

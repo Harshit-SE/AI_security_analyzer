@@ -1,24 +1,40 @@
 /**
  * Route: POST /api/analyze-api  (routes/analyzeApi.js)
  *
- * 1. Optionally probes a live API endpoint
- * 2. Checks for auth requirements, CORS, rate-limiting, sensitive data, errors
- * 3. Calls AI engine for deep analysis
- * 4. Returns fully normalised response
- *
- * Bug fixes applied:
- *  1. Raw `analysis` was passed to res.json() without normalisation — fixed
- *  2. Added buildSafeResponse() consistent with other routes
- *  3. Inner try/catch restructured — connection errors are now caught correctly
- *  4. Added null-check on analysis before accessing properties
- *  5. Improved error messages for unreachable endpoints
+ * 1. Validates the endpoint URL against an SSRF blocklist (private IPs, metadata endpoints)
+ * 2. Validates the HTTP method against a safe allowlist
+ * 3. Only forwards a safe, restricted set of headers (prevents header injection)
+ * 4. Sanitizes attacker goal/persona/explainMode to prevent prompt injection
+ * 5. Probes the live API endpoint for security issues
+ * 6. Calls AI engine for deep analysis
+ * 7. Returns fully normalised response
  */
 
 import express from 'express';
 import axios          from 'axios';
 import { runAIAnalysis } from '../services/aiEngine.js';
+import {
+  validateExternalUrl,
+  validateMethod,
+  sanitizeForwardedHeaders,
+} from '../middleware/validateUrl.js';
 
 export const apiAnalyzeRouter = express.Router();
+
+// ── Input sanitization helpers ────────────────────────────────────────────────
+
+const ALLOWED_PERSONAS     = new Set(['beginner', 'insider', 'advanced']);
+const ALLOWED_EXPLAIN_MODES = new Set(['beginner', 'developer', 'expert']);
+const MAX_GOAL_LENGTH = 200;
+
+/** Strip control characters and limit length for prompt-injected fields */
+function sanitizePromptField(value, maxLen = 200) {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/[\x00-\x1F\x7F]/g, '') // strip control chars (newlines, etc.)
+    .trim()
+    .slice(0, maxLen);
+}
 
 /** Helper: build a safe, fully-populated response object */
 function buildSafeResponse(partial = {}) {
@@ -55,24 +71,45 @@ apiAnalyzeRouter.post('/', async (req, res, next) => {
       explainMode = 'developer',
     } = req.body;
 
-    const cleanEndpoint = typeof endpoint === 'string' ? endpoint.trim() : '';
-    if (!cleanEndpoint) {
-      return res.status(400).json({ error: 'endpoint is required' });
+    // ── Validate endpoint URL (SSRF protection) ───────────────────────────────
+    let parsedUrl;
+    try {
+      parsedUrl = await validateExternalUrl(endpoint);
+    } catch (urlErr) {
+      return res.status(400).json({ error: urlErr.message });
+    }
+    const cleanEndpoint = parsedUrl.href;
+
+    // ── Validate HTTP method (allowlist only) ─────────────────────────────────
+    let safeMethod;
+    try {
+      safeMethod = validateMethod(method);
+    } catch (methodErr) {
+      return res.status(400).json({ error: methodErr.message });
     }
 
-    console.log(`[API Analyze] Testing: ${method.toUpperCase()} ${cleanEndpoint}`);
+    // ── Sanitize prompt-injection-prone fields ────────────────────────────────
+    const safeGoal        = sanitizePromptField(goal, MAX_GOAL_LENGTH) || 'gain unauthorized access';
+    const safePersona     = ALLOWED_PERSONAS.has(persona)       ? persona     : 'advanced';
+    const safeExplainMode = ALLOWED_EXPLAIN_MODES.has(explainMode) ? explainMode : 'developer';
+
+    // ── Sanitize forwarded headers (prevent header injection) ─────────────────
+    const safeHeaders = sanitizeForwardedHeaders(headers);
+
+    console.log(`[API Analyze] Testing: ${safeMethod} ${cleanEndpoint}`);
 
     const vulnerabilities = [];
 
     // ── Probe the live endpoint ──────────────────────────────────────────────
     try {
       const response = await axios({
-        method:         method.toUpperCase(),
+        method:         safeMethod,
         url:            cleanEndpoint,
-        headers:        { 'User-Agent': 'SecurityScanner/1.0 (Authorized Test)', ...headers },
+        headers:        { 'User-Agent': 'SecurityScanner/1.0 (Authorized Test)', ...safeHeaders },
         data:           reqBody,
         timeout:        10000,
         validateStatus: () => true,   // Don't throw on 4xx/5xx
+        maxRedirects:   3,            // Limit redirects to prevent redirect-based SSRF
       });
 
       const respHeaders = response.headers ?? {};
@@ -83,8 +120,7 @@ apiAnalyzeRouter.post('/', async (req, res, next) => {
       // Check 1: Unauthenticated access returned 200
       if (
         response.status === 200 &&
-        !headers.Authorization &&
-        !headers.authorization
+        !safeHeaders.authorization
       ) {
         vulnerabilities.push({
           id:       'API-1',
@@ -92,7 +128,7 @@ apiAnalyzeRouter.post('/', async (req, res, next) => {
           type:     'Broken Access Control',
           severity: 'High',
           location: cleanEndpoint,
-          evidence: `${method.toUpperCase()} ${cleanEndpoint} returned HTTP 200 with no Authorization header`,
+          evidence: `${safeMethod} ${cleanEndpoint} returned HTTP 200 with no Authorization header`,
         });
       }
 
@@ -181,10 +217,8 @@ apiAnalyzeRouter.post('/', async (req, res, next) => {
       }
 
     } catch (probeErr) {
-      // Distinguish unreachable from other errors
       if (probeErr.code === 'ECONNREFUSED' || probeErr.code === 'ETIMEDOUT') {
         console.warn(`[API Analyze] Endpoint unreachable (${probeErr.code}): ${cleanEndpoint}`);
-        // Still do AI analysis based on the URL pattern itself
       } else {
         vulnerabilities.push({
           id:       'API-0',
@@ -216,11 +250,11 @@ apiAnalyzeRouter.post('/', async (req, res, next) => {
     // ── AI analysis ──────────────────────────────────────────────────────────
     const analysis = await runAIAnalysis({
       vulnerabilities,
-      target:     `${method.toUpperCase()} ${cleanEndpoint}`,
+      target:     `${safeMethod} ${cleanEndpoint}`,
       targetType: 'api',
-      goal,
-      persona,
-      explainMode,
+      goal:        safeGoal,
+      persona:     safePersona,
+      explainMode: safeExplainMode,
     });
 
     return res.json(buildSafeResponse(analysis));

@@ -45,6 +45,27 @@ function buildSafeResponse(partial = {}) {
   };
 }
 
+
+// ── Input sanitization ────────────────────────────────────────────────────────
+const ALLOWED_PERSONAS      = new Set(['beginner', 'insider', 'advanced']);
+const ALLOWED_EXPLAIN_MODES = new Set(['beginner', 'developer', 'expert']);
+const MAX_CODE_LENGTH       = 50_000; // 50kb is plenty for static analysis
+
+function sanitizePromptField(value, maxLen = 200) {
+  if (typeof value !== 'string') return '';
+  return value.replace(/[\x00-\x1F\x7F]/g, '').trim().slice(0, maxLen);
+}
+
+/** Strip path separators and control chars from filename for safe logging */
+function sanitizeFilename(value) {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/[\x00-\x1F\x7F]/g, '')   // strip control chars (prevents log injection)
+    .replace(/[/\\]/g, '_')             // no path separators
+    .trim()
+    .slice(0, 255);
+}
+
 codeScanRouter.post('/', async (req, res, next) => {
   try {
     const {
@@ -55,13 +76,26 @@ codeScanRouter.post('/', async (req, res, next) => {
       explainMode = 'developer',
     } = req.body;
 
+    // ── Validate code input ───────────────────────────────────────────────────
     if (!code || typeof code !== 'string' || code.trim().length < 10) {
       return res.status(400).json({
         error: 'code is required and must be at least 10 characters',
       });
     }
 
-    const cleanFilename = typeof filename === 'string' ? filename.trim() : '';
+    if (code.length > MAX_CODE_LENGTH) {
+      return res.status(400).json({
+        error: `code exceeds maximum allowed size of ${MAX_CODE_LENGTH} characters`,
+      });
+    }
+
+    // ── Sanitize all prompt-injectable and logged fields ──────────────────────
+    const cleanFilename   = sanitizeFilename(filename);
+    const safeGoal        = sanitizePromptField(goal) || 'gain unauthorized access';
+    const safePersona     = ALLOWED_PERSONAS.has(persona)          ? persona     : 'advanced';
+    const safeExplainMode = ALLOWED_EXPLAIN_MODES.has(explainMode) ? explainMode : 'developer';
+
+    // Safe to log — filename is now stripped of control chars and path separators
     console.log(`[Code Scan] Analysing ${cleanFilename || 'unnamed'} (${code.length} chars)`);
 
     // ── Static analysis ──────────────────────────────────────────────────────
@@ -101,12 +135,11 @@ codeScanRouter.post('/', async (req, res, next) => {
       vulnerabilities: rawVulns,
       target:          cleanFilename || 'submitted code',
       targetType:      'code',
-      goal,
-      persona,
-      explainMode,
+      goal:            safeGoal,
+      persona:         safePersona,
+      explainMode:     safeExplainMode,
     });
 
-    // Normalise before sending — guards against any missing fields from AI
     return res.json(buildSafeResponse(analysis));
 
   } catch (err) {

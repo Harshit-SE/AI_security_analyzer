@@ -131,7 +131,7 @@ async function runInteractiveDemo() {
     console.log(`  🛡️  Security Controls:`);
     (def.security_controls || []).forEach(control => console.log(`     - ${control}`));
 
-    console.log(`\n${c.green}${c.bold}✅ AI Analysis Complete!${c.reset}\n`);
+    console.log(`\n${c.green}${c.bold}Analysis Complete!${c.reset}\n`);
 
   } catch (error) {
     clearInterval(loader);

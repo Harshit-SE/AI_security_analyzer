@@ -23,6 +23,7 @@
 import axios   from 'axios';
 import * as cheerio from 'cheerio';
 import { URL } from 'url';
+import { validateExternalUrl } from '../middleware/validateUrl.js';
 
 // ── Payload sets ──────────────────────────────────────────────────────────────
 
@@ -87,16 +88,15 @@ const SECRET_PATTERNS = [
 export async function scanUrl(url) {
   const vulnerabilities = [];
 
-  // Normalise and validate
-  const normalizedUrl = typeof url === 'string' && url.startsWith('http')
-    ? url
-    : `https://${url}`;
-
+  // ── SSRF-safe URL validation ──────────────────────────────────────────────
+  // This validates scheme, hostname, and resolves DNS to check for private IPs.
+  let parsedUrl;
   try {
-    new URL(normalizedUrl);
-  } catch {
-    throw new Error('Invalid URL format — please include the protocol (https://)');
+    parsedUrl = await validateExternalUrl(url);
+  } catch (err) {
+    throw new Error(`URL validation failed: ${err.message}`);
   }
+  const normalizedUrl = parsedUrl.href;
 
   // Run all checks in parallel; individual failures are handled inside each function
   const [headerVulns, crawlResult, tlsVulns] = await Promise.allSettled([
@@ -336,7 +336,19 @@ async function testXSS(form) {
         ? response.data
         : JSON.stringify(response.data ?? '');
 
-      if (body.includes(payload) && !body.includes('&lt;script&gt;')) {
+      // Check for reflected payload — handle multiple encoding variants
+      // A properly escaped response would encode < as &lt; &#60; &#x3C; \u003c etc.
+      const isEncoded = (
+        body.includes('&lt;script')      ||  // HTML entity
+        body.includes('&#60;script')     ||  // decimal entity
+        body.includes('&#x3c;script')    ||  // hex entity (lowercase)
+        body.includes('&#x3C;script')    ||  // hex entity (uppercase)
+        body.includes('\\u003cscript')   ||  // unicode escape
+        body.includes('%3cscript')       ||  // URL-encoded (lowercase)
+        body.includes('%3Cscript')          // URL-encoded (uppercase)
+      );
+
+      if (body.includes(payload) && !isEncoded) {
         vulnerabilities.push({
           name:     'Reflected Cross-Site Scripting (XSS)',
           type:     'Injection',

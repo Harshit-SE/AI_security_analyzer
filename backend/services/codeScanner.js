@@ -321,9 +321,12 @@ export function scanCode(code, filename = '') {
 
   // Sort by severity
   const severityOrder = { 'Critical': 0, 'High': 1, 'Medium': 2, 'Low': 3, 'Info': 4 };
-  return vulnerabilities.sort((a, b) => 
+  vulnerabilities.sort((a, b) => 
     (severityOrder[a.severity] ?? 5) - (severityOrder[b.severity] ?? 5)
   );
+
+  // Assign clean sequential IDs after sorting
+  return vulnerabilities.map((v, i) => ({ ...v, id: `CODE-${i + 1}` }));
 }
 
 /**

@@ -1,5 +1,5 @@
 /**
- * AI Security Scanner — Frontend
+ * OmniScan — Frontend
  *
  * Fully updated to use the Local Node.js Backend + Ollama (Llama 3 / Phi-3)
  * No external API calls!
@@ -84,34 +84,36 @@ function normalizeScanResult(raw) {
   };
 }
 
-// ─── API Layer (UPDATED FOR LOCAL BACKEND + OLLAMA) ──────────────────────────
+// ─── API Layer ────────────────────────────────────────────────────────────────
+// API_BASE is read from the build-time environment variable REACT_APP_API_URL.
+// Set it in a .env file (e.g. REACT_APP_API_URL=https://api.yourserver.com).
+// Falls back to http://localhost:3001 for local development only.
+const API_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:3001').replace(/\/$/, '');
 
 async function callScanAPI({ mode, input, goal, persona, explainMode }) {
-  let endpoint = "";
+  let endpoint = '';
   let payload = { goal, persona, explainMode };
 
   // Route to the correct backend scanner based on the selected tab
-  if (mode === "URL") {
-    endpoint = "http://localhost:3001/api/scan-url";
+  if (mode === 'URL') {
+    endpoint = `${API_BASE}/api/scan-url`;
     payload.url = input;
-  } else if (mode === "Code") {
-    endpoint = "http://localhost:3001/api/scan-code";
+  } else if (mode === 'Code') {
+    endpoint = `${API_BASE}/api/scan-code`;
     payload.code = input;
-    payload.filename = "pasted_code.js"; // default mock filename
-  } else if (mode === "API Endpoint") {
-    endpoint = "http://localhost:3001/api/analyze-api";
+    payload.filename = 'pasted_code.js';
+  } else if (mode === 'API Endpoint') {
+    endpoint = `${API_BASE}/api/analyze-api`;
     payload.endpoint = input;
-    payload.method = "GET"; 
+    payload.method = 'GET';
   }
 
-  // Make the request to YOUR local Node.js backend
   const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
 
-  // Handle HTTP errors gracefully
   if (!response.ok) {
     let errorMsg = `Backend request failed (HTTP ${response.status})`;
     try {
@@ -123,9 +125,7 @@ async function callScanAPI({ mode, input, goal, persona, explainMode }) {
     throw new Error(errorMsg);
   }
 
-  // Parse the normalized JSON directly from your local AI pipeline
   const parsed = await response.json();
-  
   return normalizeScanResult(parsed);
 }
 
@@ -624,9 +624,9 @@ export default function App() {
       case "vulnerabilities":
         return result.vulnerabilities.length === 0
           ? <EmptyState icon="✓" message="No vulnerabilities detected in this scan." />
-          : result.vulnerabilities.map(vuln => (
+          : result.vulnerabilities.map((vuln, idx) => (
               <VulnerabilityCard
-                key={vuln.id ?? Math.random()}
+                key={vuln.id ?? `vuln-${idx}`}
                 vuln={vuln}
                 fix={result.fixes.find(f => f?.vulnerability_id === vuln?.id)}
                 explainMode="developer"
@@ -675,7 +675,7 @@ export default function App() {
               background: "linear-gradient(135deg, #ff3b30, #ff0080)",
               display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>⚡</div>
             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", color: "#f2f2f7" }}>
-              AI Security Scanner
+              OmniScan
             </h1>
             <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4,
               background: "#ff3b3020", color: "#ff3b30", border: "1px solid #ff3b3040", fontWeight: 700 }}>

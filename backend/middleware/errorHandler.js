@@ -2,30 +2,34 @@
  * Global error handler middleware  (middleware/errorHandler.js)
  *
  * Catches all errors forwarded via next(err) in route handlers.
- * In production: hides stack traces from clients.
- * In development: returns full error details for debugging.
+ * In development: shows the error message for debugging.
+ * In production:  returns a generic message — never leaks internals.
  *
- * Bug fixes applied:
- *  1. Added check for res.headersSent to avoid "Cannot set headers after they are sent" crash
- *  2. Added 'next' parameter (required by Express for 4-param error handlers)
- *  3. Added structured JSON with 'error' and optional 'details' fields
+ * SECURITY: Stack traces are NEVER sent to clients (they expose file paths,
+ * internal library versions, and code structure). Stacks are only printed
+ * to the server-side console in development mode.
  */
 
 // eslint-disable-next-line no-unused-vars
 export function errorHandler(err, req, res, next) {
-  console.error(`[Error Handler] ${req.method} ${req.path} — ${err.message}`);
-  if (err.stack && process.env.NODE_ENV !== 'production') {
-    console.error(err.stack);
+  const isDev = process.env.NODE_ENV === 'development';
+
+  // Always log the full stack server-side for debugging
+  if (isDev) {
+    console.error(`[Error Handler] ${req.method} ${req.path} — ${err.message}`);
+    if (err.stack) console.error(err.stack);
+  } else {
+    // In production, log a brief message (no stack to avoid leaking paths in log aggregators)
+    console.error(`[Error Handler] ${req.method} ${req.path} — ${err.message}`);
   }
 
   // Guard: if response was already started (e.g. streaming), don't try to send again
   if (res.headersSent) return;
 
-  const status  = typeof err.status === 'number' ? err.status : 500;
-  const isProd  = process.env.NODE_ENV === 'production';
+  const status = typeof err.status === 'number' ? err.status : 500;
 
+  // Never send stack traces to clients — in any environment.
   res.status(status).json({
-    error:   isProd ? 'An error occurred processing your request' : err.message,
-    ...(isProd ? {} : { details: err.stack }),
+    error: isDev ? err.message : 'An error occurred processing your request',
   });
 }
