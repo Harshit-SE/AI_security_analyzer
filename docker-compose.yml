@@ -1,6 +1,38 @@
 version: '3.8'
 
 services:
+  # 1. Local Ollama AI Engine (Runs Phi-3 100% offline & free)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: omniscan-ollama
+    restart: always
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - omniscan-network
+
+  # 2. Python RAG Service (FAISS + sentence-transformers + OWASP KB)
+  rag-service:
+    build:
+      context: ./backend/rag_service
+      dockerfile: Dockerfile
+    container_name: omniscan-rag
+    restart: always
+    environment:
+      - RAG_HOST=0.0.0.0
+      - RAG_PORT=5001
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=phi3
+    ports:
+      - "5001:5001"
+    depends_on:
+      - ollama
+    networks:
+      - omniscan-network
+
+  # 3. Express Backend (Static Scanner + Orchestrator)
   backend:
     build:
       context: ./backend
@@ -10,13 +42,17 @@ services:
     environment:
       - PORT=3001
       - NODE_ENV=production
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - GEMINI_MODEL=gemini-3.1-flash-lite-preview
+      - RAG_SERVICE_URL=http://rag-service:5001
+      - OLLAMA_MODEL=phi3
+      # GEMINI_API_KEY is omitted so it defaults to 100% local Phi-3 RAG
     ports:
       - "3001:3001"
+    depends_on:
+      - rag-service
     networks:
       - omniscan-network
 
+  # 4. React Frontend Web UI
   frontend:
     build:
       context: ./frontend
@@ -29,6 +65,9 @@ services:
       - backend
     networks:
       - omniscan-network
+
+volumes:
+  ollama-models:
 
 networks:
   omniscan-network:

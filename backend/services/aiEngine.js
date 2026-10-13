@@ -114,8 +114,8 @@ export async function runAIAnalysis({
     }
   }
 
-  // If in cloud deployment without Gemini Key, don't attempt localhost RAG
-  if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+  // If in Vercel serverless without Gemini Key and without internal RAG, return safe fallback
+  if (process.env.VERCEL && !process.env.VERCEL_SERVICE_RAG_SERVICE_URL) {
     return SAFE_FALLBACK(safeVulns, 'GEMINI_API_KEY is not configured in Vercel Environment Variables.');
   }
 
