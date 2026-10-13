@@ -25,10 +25,27 @@ import hashlib
 from pathlib import Path
 from typing import Optional
 
-import numpy as np
-import faiss
 import requests
-from sentence_transformers import SentenceTransformer
+
+# Lazy-loaded ML libraries (optional on serverless / cloud deployments using Gemini)
+np = None
+faiss = None
+SentenceTransformer = None
+
+def _ensure_ml_imports():
+    global np, faiss, SentenceTransformer
+    if np is None or faiss is None or SentenceTransformer is None:
+        try:
+            import numpy as _np
+            import faiss as _faiss
+            from sentence_transformers import SentenceTransformer as _ST
+            np = _np
+            faiss = _faiss
+            SentenceTransformer = _ST
+        except ImportError as e:
+            logger.warning(f"Local ML libraries not available ({e}). Running in lightweight fallback mode.")
+            return False
+    return True
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -67,12 +84,26 @@ class KnowledgeBase:
     """
 
     def __init__(self):
-        logger.info(f"Loading embedding model: {EMBED_MODEL}")
-        self.embedder = SentenceTransformer(EMBED_MODEL)
         self.documents: list[dict] = []
         self.texts: list[str] = []
-        self.index: Optional[faiss.IndexFlatL2] = None
-        self._load()
+        self.index = None
+        self.embedder = None
+        
+        if _ensure_ml_imports():
+            logger.info(f"Loading embedding model: {EMBED_MODEL}")
+            try:
+                self.embedder = SentenceTransformer(EMBED_MODEL)
+                self._load()
+            except Exception as e:
+                logger.warning(f"Could not initialize FAISS embedder: {e}")
+        else:
+            # Fallback: load documents directly without vector embeddings
+            if KB_PATH.exists():
+                try:
+                    self.documents = json.loads(KB_PATH.read_text(encoding="utf-8"))
+                    logger.info(f"Loaded {len(self.documents)} documents in lightweight mode")
+                except Exception as e:
+                    logger.warning(f"Could not load knowledge base: {e}")
 
     # ── Public API ──────────────────────────────────────────────────────────
 
