@@ -15,7 +15,8 @@
     },
     "rag_service": {
       "root": "backend/rag_service",
-      "framework": "flask"
+      "framework": "flask",
+      "entrypoint": "rag_service.py"
     },
     "frontend": {
       "root": "frontend",

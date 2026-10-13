@@ -1,0 +1,2 @@
+[tool.vercel]
+entrypoint = "rag_service:app"
