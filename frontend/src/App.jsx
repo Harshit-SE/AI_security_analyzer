@@ -85,10 +85,12 @@ function normalizeScanResult(raw) {
 }
 
 // ─── API Layer ────────────────────────────────────────────────────────────────
-// API_BASE is read from the build-time environment variable REACT_APP_API_URL.
-// Set it in a .env file (e.g. REACT_APP_API_URL=https://api.yourserver.com).
-// Falls back to http://localhost:3001 for local development only.
-const API_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:3001').replace(/\/$/, '');
+// In production on Vercel Services, both frontend and backend are on the same domain,
+// so relative paths (empty API_BASE) route through the Vercel rewrite rules directly.
+// For standalone local dev, falls back to http://localhost:3001 if REACT_APP_API_URL is unset.
+const API_BASE = process.env.REACT_APP_API_URL !== undefined
+  ? process.env.REACT_APP_API_URL.replace(/\/$/, '')
+  : (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001');
 
 async function callScanAPI({ mode, input, goal, persona, explainMode }) {
   let endpoint = '';

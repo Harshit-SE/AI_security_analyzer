@@ -16,7 +16,8 @@ import { GoogleGenAI } from '@google/genai';
 // ── Configuration ─────────────────────────────────────────────────────────────
 const GEMINI_API_KEY   = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL     = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-const RAG_SERVICE_URL  = process.env.RAG_SERVICE_URL || 'http://127.0.0.1:5001';
+const RAG_SERVICE_RAW  = process.env.VERCEL_SERVICE_RAG_SERVICE_URL || process.env.RAG_SERVICE_URL || 'http://127.0.0.1:5001';
+const RAG_SERVICE_URL  = RAG_SERVICE_RAW.replace(/\/$/, '');
 const RAG_TIMEOUT_MS   = parseInt(process.env.RAG_TIMEOUT_MS || '300000', 10);
 const OLLAMA_MODEL_LOG = process.env.OLLAMA_MODEL || 'phi3';
 

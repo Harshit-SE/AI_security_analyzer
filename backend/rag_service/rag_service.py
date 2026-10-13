@@ -777,55 +777,61 @@ def _build_static_fallback(vulnerabilities: list[dict], chains: list[dict]) -> d
 #  HTTP SERVER — Node.js calls this via REST
 # ══════════════════════════════════════════════════════════════════════════════
 
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+_pipeline_instance = None
+
+def get_pipeline():
+    global _pipeline_instance
+    if _pipeline_instance is None:
+        _pipeline_instance = RAGPipeline()
+    return _pipeline_instance
+
+@app.route("/health", methods=["GET"])
+def health():
+    pipeline = get_pipeline()
+    ollama_ok = pipeline.llm.is_available()
+    return jsonify({
+        "status": "ok",
+        "ollama": ollama_ok,
+        "model":  OLLAMA_MODEL,
+        "docs_indexed": pipeline.kb.index.ntotal if pipeline.kb.index else 0,
+    })
+
+@app.route("/analyze", methods=["POST"])
+def analyze():
+    pipeline = get_pipeline()
+    body = request.get_json(force=True)
+    if not body:
+        return jsonify({"error": "Empty request body"}), 400
+
+    result = pipeline.run(
+        vulnerabilities = body.get("vulnerabilities", []),
+        target          = body.get("target", "unknown"),
+        target_type     = body.get("targetType", "unknown"),
+        goal            = body.get("goal"),
+        persona         = body.get("persona", "advanced"),
+        explain_mode    = body.get("explainMode", "developer"),
+    )
+    return jsonify(result)
+
+@app.route("/retrieve", methods=["POST"])
+def retrieve():
+    """Quick endpoint to test RAG retrieval without LLM."""
+    pipeline = get_pipeline()
+    body = request.get_json(force=True)
+    query = body.get("query", "")
+    # Bound k to prevent DoS via huge FAISS searches
+    MAX_K = 20
+    k = min(int(body.get("k", TOP_K)), MAX_K)
+    if k < 1:
+        k = 1
+    docs  = pipeline.kb.retrieve(query, k=k)
+    return jsonify({"query": query, "results": docs})
+
 def run_http_server(host: str = "127.0.0.1", port: int = 5001):
-    """
-    Lightweight Flask HTTP server so Node.js can call the RAG service
-    over localhost without subprocess overhead.
-    """
-    from flask import Flask, request, jsonify
-
-    app = Flask(__name__)
-    pipeline = RAGPipeline()  # loaded once at startup
-
-    @app.route("/health", methods=["GET"])
-    def health():
-        ollama_ok = pipeline.llm.is_available()
-        return jsonify({
-            "status": "ok",
-            "ollama": ollama_ok,
-            "model":  OLLAMA_MODEL,
-            "docs_indexed": pipeline.kb.index.ntotal if pipeline.kb.index else 0,
-        })
-
-    @app.route("/analyze", methods=["POST"])
-    def analyze():
-        body = request.get_json(force=True)
-        if not body:
-            return jsonify({"error": "Empty request body"}), 400
-
-        result = pipeline.run(
-            vulnerabilities = body.get("vulnerabilities", []),
-            target          = body.get("target", "unknown"),
-            target_type     = body.get("targetType", "unknown"),
-            goal            = body.get("goal"),
-            persona         = body.get("persona", "advanced"),
-            explain_mode    = body.get("explainMode", "developer"),
-        )
-        return jsonify(result)
-
-    @app.route("/retrieve", methods=["POST"])
-    def retrieve():
-        """Quick endpoint to test RAG retrieval without LLM."""
-        body = request.get_json(force=True)
-        query = body.get("query", "")
-        # Bound k to prevent DoS via huge FAISS searches
-        MAX_K = 20
-        k = min(int(body.get("k", TOP_K)), MAX_K)
-        if k < 1:
-            k = 1
-        docs  = pipeline.kb.retrieve(query, k=k)
-        return jsonify({"query": query, "results": docs})
-
+    """Run local standalone HTTP server."""
     logger.info(f"RAG HTTP service starting on http://{host}:{port}")
     app.run(host=host, port=port, debug=False, threaded=True)
 
