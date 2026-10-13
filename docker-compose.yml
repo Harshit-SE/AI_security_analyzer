@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: omniscan-backend
+    restart: always
+    environment:
+      - PORT=3001
+      - NODE_ENV=production
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=gemini-3.1-flash-lite-preview
+    ports:
+      - "3001:3001"
+    networks:
+      - omniscan-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: omniscan-frontend
+    restart: always
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - omniscan-network
+
+networks:
+  omniscan-network:
+    driver: bridge

@@ -1,0 +1,7 @@
+node_modules
+.git
+.env
+rag_service/.venv
+rag_service/__pycache__
+knowledge_base/faiss_index.bin
+npm-debug.log
